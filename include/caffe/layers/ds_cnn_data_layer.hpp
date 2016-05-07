@@ -11,11 +11,17 @@
 #include "caffe/layer.hpp"
 #include "caffe/layers/base_data_layer.hpp"
 #include "caffe/proto/caffe.pb.h"
-//#include "caffe/util/blocking_queue.hpp"
+#include "caffe/util/blocking_queue.hpp"
 
 #define NUM_JOINTS 14
 
 namespace caffe {
+
+template <typename Dtype>
+class PoseBatch {
+public:
+  Blob<Dtype> part_data_, body_data_, label_, pose_;
+};
 
 /**
  * @brief Provides dual source data to the Net from windows
@@ -41,27 +47,27 @@ class PoseWindowDataLayer :
 
   virtual inline const char* type() const { return "PoseWindowData"; }
   virtual inline int ExactNumBottomBlobs() const { return 0; }
-  virtual inline int ExactNumTopBlobs() const { return 3; }
+  virtual inline int ExactNumTopBlobs() const { return 4; }
 
   // Prefetches batches (asynchronously if to GPU memory)
   static const int PREFETCH_COUNT = 3;
  
  protected:
   virtual void InternalThreadEntry();
-  virtual void load_batch(Batch<Dtype>* batch);
+  virtual void load_batch(PoseBatch<Dtype>* batch);
 
   virtual unsigned int PrefetchRand();
 
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
           const vector<Blob<Dtype>*>& top);
 
-  Batch<Dtype> prefetch_[PREFETCH_COUNT];
-  BlockingQueue<Batch<Dtype>* > prefetch_free_;
-  BlockingQueue<Batch<Dtype>*> prefetch_full_;
+  PoseBatch<Dtype> prefetch_[PREFETCH_COUNT];
+  BlockingQueue<PoseBatch<Dtype>* > prefetch_free_;
+  BlockingQueue<PoseBatch<Dtype>* > prefetch_full_;
 
   shared_ptr<Caffe::RNG> prefetch_rng_;
   vector<std::pair<std::string, vector<int> > > image_database_;
-  enum TopField { LOCAL_DATA, JOINT_LABEL, POSE_2D, TNUM };
+  enum TopField { DATA_PART, DATA_BODY, JOINT_LABEL, POSE_2D, TNUM };
   enum WindowField { IMAGE_INDEX, LABEL, OVERLAP, X1, Y1, X2, Y2, NUM };
   vector<vector<float> > fg_windows_;
   vector<vector<float> > bg_windows_;

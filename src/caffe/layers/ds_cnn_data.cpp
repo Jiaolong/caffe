@@ -52,7 +52,8 @@ void PoseWindowDataLayer<Dtype>::LayerSetUp(
   // cudaMalloc calls when the main thread is running. In some GPUs this
   // seems to cause failures if we do not so.
   for (int i = 0; i < PREFETCH_COUNT; ++i) {
-    prefetch_[i].data_.mutable_cpu_data();
+    prefetch_[i].part_data_.mutable_cpu_data();
+    prefetch_[i].body_data_.mutable_cpu_data();
     if (this->output_labels_) {
       prefetch_[i].label_.mutable_cpu_data();
       prefetch_[i].pose_.mutable_cpu_data();
@@ -61,7 +62,8 @@ void PoseWindowDataLayer<Dtype>::LayerSetUp(
 #ifndef CPU_ONLY
   if (Caffe::mode() == Caffe::GPU) {
     for (int i = 0; i < PREFETCH_COUNT; ++i) {
-      prefetch_[i].data_.mutable_gpu_data();
+      prefetch_[i].part_data_.mutable_gpu_data();
+      prefetch_[i].body_data_.mutable_gpu_data();
       if (this->output_labels_) {
         prefetch_[i].label_.mutable_gpu_data();
         prefetch_[i].pose_.mutable_gpu_data();
@@ -86,11 +88,12 @@ void PoseWindowDataLayer<Dtype>::InternalThreadEntry() {
 
   try {
     while (!must_stop()) {
-      Batch<Dtype>* batch = prefetch_free_.pop();
+      PoseBatch<Dtype>* batch = prefetch_free_.pop();
       load_batch(batch);
 #ifndef CPU_ONLY
       if (Caffe::mode() == Caffe::GPU) {
-        batch->data_.data().get()->async_gpu_push(stream);
+        batch->part_data_.data().get()->async_gpu_push(stream);
+        batch->body_data_.data().get()->async_gpu_push(stream);
         CUDA_CHECK(cudaStreamSynchronize(stream));
       }
 #endif
@@ -268,18 +271,25 @@ void PoseWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
   LOG(INFO) << "Crop mode: "
       << this->layer_param_.pose_window_data_param().crop_mode();
 
-  // image
+  // part image
   const int crop_size = this->transform_param_.crop_size();
   CHECK_GT(crop_size, 0);
   const int batch_size = this->layer_param_.pose_window_data_param().batch_size();
-  top[LOCAL_DATA]->Reshape(batch_size, channels, crop_size, crop_size);
+  top[DATA_PART]->Reshape(batch_size, channels, crop_size, crop_size);
   for (int i = 0; i < this->PREFETCH_COUNT; ++i)
-    this->prefetch_[i].data_.Reshape(
+    this->prefetch_[i].part_data_.Reshape(
         batch_size, channels, crop_size, crop_size);
 
-  LOG(INFO) << "output data size: " << top[LOCAL_DATA]->num() << ","
-      << top[LOCAL_DATA]->channels() << "," << top[LOCAL_DATA]->height() << ","
-      << top[LOCAL_DATA]->width();
+
+  LOG(INFO) << "output part size: " << top[DATA_PART]->num() << ","
+      << top[DATA_PART]->channels() << "," << top[DATA_PART]->height() << ","
+      << top[DATA_PART]->width();
+
+  // full body image
+  top[DATA_BODY]->Reshape(batch_size, channels, crop_size, crop_size);
+  for (int i = 0; i < this->PREFETCH_COUNT; ++i)
+    this->prefetch_[i].body_data_.Reshape(
+        batch_size, channels, crop_size, crop_size);
   
   // label
   vector<int> label_shape(1, batch_size);
@@ -331,7 +341,7 @@ unsigned int PoseWindowDataLayer<Dtype>::PrefetchRand() {
 
 // This function is called on prefetch thread
 template <typename Dtype>
-void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
+void PoseWindowDataLayer<Dtype>::load_batch(PoseBatch<Dtype>* batch) {
   // At each iteration, sample N windows where N*p are foreground (object)
   // windows and N*(1-p) are background (non-object) windows
   CPUTimer batch_timer;
@@ -339,7 +349,8 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   double read_time = 0;
   double trans_time = 0;
   CPUTimer timer;
-  Dtype* top_data = batch->data_.mutable_cpu_data();
+  Dtype* top_part_data = batch->part_data_.mutable_cpu_data();
+  Dtype* top_body_data = batch->body_data_.mutable_cpu_data();
   Dtype* top_label = batch->label_.mutable_cpu_data();
   Dtype* top_pose = batch->pose_.mutable_cpu_data();
   const Dtype scale = this->layer_param_.pose_window_data_param().scale();
@@ -365,7 +376,8 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   bool use_square = (crop_mode == "square") ? true : false;
 
   // zero out batch
-  caffe_set(batch->data_.count(), Dtype(0), top_data);
+  caffe_set(batch->part_data_.count(), Dtype(0), top_part_data);
+  caffe_set(batch->body_data_.count(), Dtype(0), top_body_data);
 
   const int num_fg = static_cast<int>(static_cast<float>(batch_size)
       * fg_fraction);
@@ -397,6 +409,7 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
       read_time += timer.MicroSeconds();
       timer.Start();
       const int channels = cv_img.channels();
+      
 
       // crop window out of image and warp it
       int x1 = window[PoseWindowDataLayer<Dtype>::X1];
@@ -497,7 +510,7 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
         cv::flip(cv_cropped_img, cv_cropped_img, 1);
       }
 
-      // copy the warped window into top_data
+      // copy the warped window into top_part_data
       for (int h = 0; h < cv_cropped_img.rows; ++h) {
         const uchar* ptr = cv_cropped_img.ptr<uchar>(h);
         int img_index = 0;
@@ -510,17 +523,54 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
             if (this->has_mean_file_) {
               int mean_index = (c * mean_height + h + mean_off + pad_h)
                            * mean_width + w + mean_off + pad_w;
-              top_data[top_index] = (pixel - mean[mean_index]) * scale;
+              top_part_data[top_index] = (pixel - mean[mean_index]) * scale;
             } else {
               if (this->has_mean_values_) {
-                top_data[top_index] = (pixel - this->mean_values_[c]) * scale;
+                top_part_data[top_index] = (pixel - this->mean_values_[c]) * scale;
               } else {
-                top_data[top_index] = pixel * scale;
+                top_part_data[top_index] = pixel * scale;
               }
             }
           }
         }
       }
+
+      // zero out the part in the full boday image
+      // and warp the whole image
+      cv::Mat cv_img_masked = cv_img.clone();
+      for (int c = 0; c < channels; ++c) {
+	      for (int row = y1; row <= y2; ++row) {
+	        for (int col = x1; col <= x2; ++col) {
+	          	cv_img_masked.at<cv::Vec3b>(row, col)[c] = 0;
+	        }
+	      }
+  	  }
+      cv::resize(cv_img_masked, cv_img_masked,
+          cv_crop_size, 0, 0, cv::INTER_LINEAR);
+      for (int h = 0; h < cv_img_masked.rows; ++h) {
+        const uchar* ptr = cv_img_masked.ptr<uchar>(h);
+        int img_index = 0;
+        for (int w = 0; w < cv_img_masked.cols; ++w) {
+          for (int c = 0; c < channels; ++c) {
+            int top_index = ((item_id * channels + c) * crop_size + h)
+                     * crop_size + w;
+            // int top_index = (c * height + h) * width + w;
+            Dtype pixel = static_cast<Dtype>(ptr[img_index++]);
+            if (this->has_mean_file_) {
+              int mean_index = (c * mean_height + h + mean_off)
+                           * mean_width + w + mean_off;
+              top_body_data[top_index] = (pixel - mean[mean_index]) * scale;
+            } else {
+              if (this->has_mean_values_) {
+                top_body_data[top_index] = (pixel - this->mean_values_[c]) * scale;
+              } else {
+                top_body_data[top_index] = pixel * scale;
+              }
+            }
+          }
+        }
+      }
+
       trans_time += timer.MicroSeconds();
       // get window label
       top_label[item_id] = window[PoseWindowDataLayer<Dtype>::LABEL];
@@ -561,14 +611,14 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
           << is_fg << std::endl;
       inf.close();
       
-      cv::Mat patch = cv::Mat(crop_size, crop_size, CV_8UC(3));
+      cv::Mat im_part = cv::Mat(crop_size, crop_size, CV_8UC(3));
       for (int c = 0; c < channels; ++c) {
         for (int h = 0; h < crop_size; ++h) {
           for (int w = 0; w < crop_size; ++w) {
             int mean_index = (c * mean_height + h + mean_off + pad_h)
                            * mean_width + w + mean_off + pad_w;
-            patch.at<cv::Vec3b>(h, w)[c] =
-                top_data[((item_id * channels + c) * crop_size + h)
+            im_part.at<cv::Vec3b>(h, w)[c] =
+                top_part_data[((item_id * channels + c) * crop_size + h)
                           * crop_size + w] + mean[mean_index];
           }
         }
@@ -577,9 +627,24 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
               top_pose[item_id*2+1]*crop_size + crop_size/2);
       int radius = crop_size/32;
       if (top_label[item_id] > 0) {
-          cv::circle(patch, center, radius, cv::Scalar(255, 0, 0), -1);
+          cv::circle(im_part, center, radius, cv::Scalar(255, 0, 0), -1);
       }
-      cv::imwrite((string("dump/") + file_id + string("_data.png")), patch); 
+
+      cv::Mat im_body = cv::Mat(crop_size, crop_size, CV_8UC(3));
+      for (int c = 0; c < channels; ++c) {
+        for (int h = 0; h < crop_size; ++h) {
+          for (int w = 0; w < crop_size; ++w) {
+            int mean_index = (c * mean_height + h + mean_off)
+                           * mean_width + w + mean_off;
+            im_body.at<cv::Vec3b>(h, w)[c] =
+                top_body_data[((item_id * channels + c) * crop_size + h)
+                          * crop_size + w] + mean[mean_index];
+          }
+        }
+      }
+
+      cv::imwrite((string("dump/") + file_id + string("_data_part.png")), im_part);
+      cv::imwrite((string("dump/") + file_id + string("_data_body.png")), im_body);  
       #endif
 
       item_id++;
@@ -594,12 +659,15 @@ void PoseWindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 template <typename Dtype>
 void PoseWindowDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
-  Batch<Dtype>* batch = prefetch_full_.pop("Data layer prefetch queue empty");
+  PoseBatch<Dtype>* batch = prefetch_full_.pop("Data layer prefetch queue empty");
   // Reshape to loaded data.
-  top[LOCAL_DATA]->ReshapeLike(batch->data_);
+  top[DATA_PART]->ReshapeLike(batch->part_data_);
+  top[DATA_BODY]->ReshapeLike(batch->body_data_);
   // Copy the data
-  caffe_copy(batch->data_.count(), batch->data_.cpu_data(),
-             top[LOCAL_DATA]->mutable_cpu_data());
+  caffe_copy(batch->part_data_.count(), batch->part_data_.cpu_data(),
+             top[DATA_PART]->mutable_cpu_data());
+  caffe_copy(batch->body_data_.count(), batch->body_data_.cpu_data(),
+             top[DATA_BODY]->mutable_cpu_data());
   DLOG(INFO) << "Prefetch copied";
   if (this->output_labels_) {
     // Reshape to loaded labels.

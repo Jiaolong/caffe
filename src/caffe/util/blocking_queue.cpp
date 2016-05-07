@@ -3,6 +3,7 @@
 
 #include "caffe/data_reader.hpp"
 #include "caffe/layers/base_data_layer.hpp"
+#include "caffe/layers/ds_cnn_data_layer.hpp"
 #include "caffe/parallel.hpp"
 #include "caffe/util/blocking_queue.hpp"
 
@@ -92,5 +93,7 @@ template class BlockingQueue<Datum*>;
 template class BlockingQueue<shared_ptr<DataReader::QueuePair> >;
 template class BlockingQueue<P2PSync<float>*>;
 template class BlockingQueue<P2PSync<double>*>;
+template class BlockingQueue<PoseBatch<float>*>;
+template class BlockingQueue<PoseBatch<double>*>;
 
 }  // namespace caffe
