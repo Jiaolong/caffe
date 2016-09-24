@@ -8,7 +8,7 @@
 #
 # - Redistributions of source code must retain the above copyright notice,
 #   this list of conditions and the following disclaimer.
-# 
+#
 # - Redistributions in binary form must reproduce the above copyright notice,
 #   this list of conditions and the following disclaimer in the documentation
 #   and/or other materials provided with the distribution.
@@ -27,6 +27,7 @@
 from __future__ import print_function
 
 import os
+import os.path as osp
 import glob
 import argparse
 import shutil
@@ -40,7 +41,8 @@ import cv2
 print_spaces = 100
 
 # Make sure that caffe is on the python path:
-caffe_root = '/home/yganin/Arbeit/Projects/NN/skaffe'  # this file is expected to be in {caffe_root}/examples
+caffe_root = osp.abspath(osp.join(osp.dirname(__file__), \
+        '..', '..', '..'))
 import sys
 sys.path.insert(0, os.path.join(caffe_root, 'python'))
 
@@ -50,7 +52,7 @@ def read_data(source_path):
     images = [] # images
     labels = [] # corresponding labels
 
-    r = [x for x in os.listdir(source_path) 
+    r = [x for x in os.listdir(source_path)
          if os.path.isdir(os.path.join(source_path, x))]
     r.sort()
 
@@ -69,7 +71,7 @@ def read_data(source_path):
             labels.append(c)
 
         # Print status.
-        sys.stdout.write("\r%s\r    Processed %d of %d classes" % 
+        sys.stdout.write("\r%s\r    Processed %d of %d classes" %
                          (print_spaces * ' ', c + 1, len(r)))
         sys.stdout.flush()
     print()
@@ -100,7 +102,7 @@ def convert_dataset(source_path, target_path, domain, examples, iters):
 
                 to_pick = min(examples, indices.size)
 
-                train_indices = rnd.choice(indices, size=to_pick, replace=False)        
+                train_indices = rnd.choice(indices, size=to_pick, replace=False)
                 test_indices = np.setdiff1d(indices, train_indices)
 
                 all_train_indices.append(train_indices)
@@ -125,9 +127,8 @@ def convert_dataset(source_path, target_path, domain, examples, iters):
             else:
                 name = domain + '_' + suffixes[i] + '_' + str(t)
 
-            write_dataset(images, labels, indices, 
-                          name, 
-                          target_path)
+            write_dataset(images, labels, indices, \
+                    name, target_path)
 
 def write_dataset(images, labels, indices, suffix, target_path):
     db_path = os.path.join(target_path, '{0}_lmdb'.format(suffix))
@@ -166,7 +167,7 @@ def write_dataset(images, labels, indices, suffix, target_path):
 
     if num_images % 1000 != 0:
         mdb_txn.commit()
-    
+
     mdb_env.close()
 
 if __name__ == '__main__':

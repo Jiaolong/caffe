@@ -2,6 +2,15 @@
 
 This is an extension to Caffe which allows one to reproduce some of the results presented in the paper [Unsupervised Domain Adaptation by Backpropagation](http://jmlr.org/proceedings/papers/v37/ganin15.pdf) (accepted to ICML 2015).
 
+## Dependencies
+lmdb python package is required
+```
+apt-get install libffi-dev python-dev build-essential
+pip install lmdb
+# or
+easy_install lmdb
+```
+
 ## How to use
 
 Download and unpack the [Office dataset](http://www.cs.uml.edu/~saenko/data/domain_adaptation_images.tar.gz). Let `<office_dir>` be the path where you uncompressed the files. 

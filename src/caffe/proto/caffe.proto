@@ -635,6 +635,7 @@ message DataParameter {
     ORDINARY = 0;  
     SHUFFLING = 1; 
   }
+  optional CURSOR_TYPE cursor = 11 [default = ORDINARY];
   // Specify the data source.
   optional string source = 1;
   // Specify the batch size.

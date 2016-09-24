@@ -1,27 +1,38 @@
 #!/bin/bash
 
 OFFICE_DIR=$1
- 
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <dir_office>"
+    exit 1
+fi
+
 ROOT_DIR="$( cd "$(dirname "$0")"/../../.. ; pwd -P )"
 cd $ROOT_DIR
 
 # Download AlexNet reference model.
 echo "[*] Downloading AlexNet reference model..."
-python ./scripts/download_model_binary.py ./models/bvlc_alexnet >/dev/null 2>/dev/null
+#python ./scripts/download_model_binary.py ./models/bvlc_alexnet >/dev/null 2>/dev/null
 
 # Download ImageNet aux data.
 echo "[*] Downloading ImageNet aux data..."
-./data/ilsvrc12/get_ilsvrc_aux.sh >/dev/null 2>/dev/null
+#./data/ilsvrc12/get_ilsvrc_aux.sh >/dev/null 2>/dev/null
 
 # Prepare lmdb databases for the Office dataset.
 echo "[*] Preparing datasets..."
-mkdir ./examples/adaptation/datasets
-for DOMAIN in amazon webcam dslr; do
-    python ./examples/adaptation/scripts/convert_data.py \
-        -s $OFFICE_DIR/domain_adaptation_images/ \
-        -t ./examples/adaptation/datasets/ \
-        -d $DOMAIN -i 1 >/dev/null 2>/dev/null
-done
+dir_dataset=./examples/adaptation/datasets
+if [ ! -d ${dir_dataset} ]; then
+    mkdir ${dir_dataset}
+    for DOMAIN in amazon webcam dslr; do
+        python ./examples/adaptation/scripts/convert_data.py \
+            -s $OFFICE_DIR/ \
+            -t ${dir_dataset}/ \
+            -d $DOMAIN -i 1
+            #-d $DOMAIN -i 1 >/dev/null 2>/dev/null
+    done
+else
+    echo "dataset directory exists!"
+fi
 
 # Prepare directories for the experiments.
 echo "[*] Preparing directories for experiments..."
