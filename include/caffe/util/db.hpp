@@ -39,7 +39,8 @@ class DB {
   virtual ~DB() { }
   virtual void Open(const string& source, Mode mode) = 0;
   virtual void Close() = 0;
-  virtual Cursor* NewCursor() = 0;
+  virtual Cursor* NewCursor(DataParameter::CURSOR_TYPE type =
+          DataParameter_CURSOR_TYPE_ORDINARY) = 0;
   virtual Transaction* NewTransaction() = 0;
 
   DISABLE_COPY_AND_ASSIGN(DB);

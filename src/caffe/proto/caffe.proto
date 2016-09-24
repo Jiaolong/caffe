@@ -307,6 +307,7 @@ message ParamSpec {
 // Update the next available ID when you add a new LayerParameter field.
 //
 // LayerParameter next available layer-specific ID: 147 (last added: recurrent_param)
+//                                                  200 (last added: gradient_scaler_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -403,6 +404,7 @@ message LayerParameter {
   optional ThresholdParameter threshold_param = 128;
   optional TileParameter tile_param = 138;
   optional WindowDataParameter window_data_param = 129;
+  optional GradientScalerParameter gradient_scaler_param = 200;
 }
 
 // Message that stores parameters used to apply transformation
@@ -629,6 +631,10 @@ message DataParameter {
     LEVELDB = 0;
     LMDB = 1;
   }
+  enum CURSOR_TYPE {  
+    ORDINARY = 0;  
+    SHUFFLING = 1; 
+  }
   // Specify the data source.
   optional string source = 1;
   // Specify the batch size.
@@ -737,6 +743,17 @@ message FlattenParameter {
   // May be negative to index from the end (e.g., the default -1 for the last
   // axis).
   optional int32 end_axis = 2 [default = -1];
+}
+
+// Message that stores parameters used by GradientScalerLayer
+message GradientScalerParameter {
+  // GradientScalerLayer scales deltas according to the schedule:
+  // 2 * height / (1 + exp(-alpha * (iter / max_iter))) - upper_bound ,
+  // where height = upper_bound - lower_bound
+  optional float lower_bound = 1 [default = 0.0];
+  optional float upper_bound = 2 [default = 1.0];
+  optional float alpha = 3 [default = 10.0];
+  optional float max_iter = 4 [default = 1];
 }
 
 // Message that stores parameters used by HDF5DataLayer

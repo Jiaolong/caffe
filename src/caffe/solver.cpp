@@ -9,6 +9,8 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 
+#include "caffe/messenger.hpp"
+
 namespace caffe {
 
 template<typename Dtype>
@@ -199,6 +201,7 @@ void Solver<Dtype>::Step(int iters) {
   smoothed_loss_ = 0;
 
   while (iter_ < stop_iter) {
+    Messenger::SendMessage("SOLVER_ITER_CHANGED", &iter_);
     // zero-init the params
     net_->ClearParamDiffs();
     if (param_.test_interval() && iter_ % param_.test_interval() == 0

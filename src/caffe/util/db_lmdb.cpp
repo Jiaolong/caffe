@@ -35,13 +35,24 @@ void LMDB::Open(const string& source, Mode mode) {
   LOG(INFO) << "Opened lmdb " << source;
 }
 
-LMDBCursor* LMDB::NewCursor() {
+LMDBCursor* LMDB::NewCursor(caffe::DataParameter::CURSOR_TYPE type) {
   MDB_txn* mdb_txn;
   MDB_cursor* mdb_cursor;
   MDB_CHECK(mdb_txn_begin(mdb_env_, NULL, MDB_RDONLY, &mdb_txn));
   MDB_CHECK(mdb_dbi_open(mdb_txn, NULL, 0, &mdb_dbi_));
   MDB_CHECK(mdb_cursor_open(mdb_txn, mdb_dbi_, &mdb_cursor));
-  return new LMDBCursor(mdb_txn, mdb_cursor);
+
+  switch (type){
+  case DataParameter_CURSOR_TYPE_ORDINARY:
+    return new LMDBCursor(mdb_txn, mdb_cursor);      
+    break;
+  case DataParameter_CURSOR_TYPE_SHUFFLING: 
+    return new LMDBShuffleCursor(mdb_txn, mdb_cursor);  
+    break; 
+  default:
+    NOT_IMPLEMENTED;
+    return NULL;
+  } 
 }
 
 LMDBTransaction* LMDB::NewTransaction() {
