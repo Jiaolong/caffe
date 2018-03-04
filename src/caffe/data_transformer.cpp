@@ -1,5 +1,6 @@
 #ifdef USE_OPENCV
 #include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #endif  // USE_OPENCV
 
 #include <string>
@@ -128,6 +129,180 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
 
 
 template<typename Dtype>
+void DataTransformer<Dtype>::Transform(const Datum& datum_data, const Datum& datum_label, 
+                                       Blob<Dtype>* transformed_data, Blob<Dtype>* transformed_label, int batch_iter) {
+  CHECK_EQ(datum_data.height(), datum_label.height());
+  CHECK_EQ(datum_data.width(), datum_label.width());
+
+  const string& data = datum_data.data();
+  const string& label = datum_label.data();
+  const int datum_channels = datum_data.channels();
+  const int datum_height = datum_data.height();
+  const int datum_width = datum_data.width();
+
+  float lower_scale = 1, upper_scale = 1;
+  if (param_.scale_ratios_size() == 2)
+  {
+    lower_scale = param_.scale_ratios(0);
+    upper_scale = param_.scale_ratios(1);
+  }
+  const Dtype scale = param_.scale();
+  const bool do_mirror = param_.mirror() && Rand(2);
+  const bool has_mean_file = param_.has_mean_file();
+  const bool has_mean_values = mean_values_.size() > 0;
+  const int stride = param_.stride();
+
+  CHECK_GT(datum_channels, 0);
+
+  if (has_mean_file) {
+    NOT_IMPLEMENTED;
+  }
+  if (has_mean_values) {
+    CHECK(mean_values_.size() == 1 || mean_values_.size() == datum_channels || datum_channels % mean_values_.size() == 0) <<
+     "Specify either 1 mean_value or as many as channels: " << datum_channels;
+     int temp_size = mean_values_.size();
+     for (int c = temp_size; c < datum_channels; ++c)
+     {
+        mean_values_.push_back(mean_values_[(c - temp_size) % temp_size]);
+     }
+  }
+
+  float scale_ratios = std::max(Rand(int((upper_scale - lower_scale) * 1000.0) + 1) / 1000.0, 0.0) + lower_scale;
+
+  int height = int(datum_height * scale_ratios + 0.5);
+  int width = int(datum_width * scale_ratios + 0.5);
+
+
+  int crop_height = height / stride * stride;
+  int crop_width = width / stride * stride;
+
+
+  if (param_.has_crop_size())
+  {
+    crop_height = param_.crop_size();
+    crop_width = param_.crop_size();
+  }
+  else if (param_.has_upper_size())
+  {
+    crop_height = std::min(crop_height, param_.upper_size());
+    crop_width = std::min(crop_width, param_.upper_size());
+  }
+  else if (param_.has_upper_height() && param_.has_upper_width())
+  {
+    crop_height = std::min(crop_height, param_.upper_height());
+    crop_width = std::min(crop_width, param_.upper_width());
+  }
+
+
+  int h_off, w_off;
+  if (height < crop_height)
+    h_off = -Rand(crop_height - height + 1);
+  else
+    h_off = Rand(height - crop_height + 1);
+
+  if (width < crop_width)
+    w_off = -Rand(crop_width - width + 1);
+  else
+    w_off = Rand(width - crop_width + 1);
+
+
+  if (batch_iter == 0)
+  {
+    transformed_data->Reshape(transformed_data->num(), datum_channels, crop_height, crop_width);
+    transformed_label->Reshape(transformed_data->num(), 1, crop_height, crop_width);
+  }
+
+  float angl = 0; 
+  if (param_.rand_rotate_size() > 0 && Rand(2)){
+    CHECK_EQ(this->param_.rand_rotate_size(), 2) << "Exactly two rand_rotate param required";
+    const float rand_rotate_small = param_.rand_rotate(0);
+    const float rand_rotate_large = param_.rand_rotate(1);
+    CHECK_LT(rand_rotate_small, rand_rotate_large) << "first rand_ratate should be smaller than the second rand_rotate";
+    angl = rand_rotate_small + Rand(int((rand_rotate_large - rand_rotate_small) * 1000.0) + 1) / 1000.0;
+  }
+
+  float rand_sigma = 0;
+  if (param_.gaussian_blur() && Rand(2)) {
+    rand_sigma = Rand(1000) / 1000.0 * 0.6;
+  }
+
+
+
+  //for image data
+  
+  int top_index;
+  Dtype* ptr = transformed_data->mutable_cpu_data() + transformed_data->offset(batch_iter);
+  for (int c = 0; c < datum_channels; ++c) {
+    cv::Mat M(datum_height, datum_width, CV_8UC1);
+    for (int h = 0; h < datum_height; ++h)
+      for (int w = 0; w < datum_width; ++w) 
+      {
+        int data_index = (c * datum_height + h) * datum_width + w;
+        M.at<uint8_t>(h, w) = static_cast<uint8_t>(data[data_index]);
+      }
+
+
+    if (angl != 0)
+       Rotation(M, angl, 0);
+    if (rand_sigma != 0)
+       cv::GaussianBlur(M, M, cv::Size( 5, 5 ), rand_sigma, rand_sigma);
+    cv::resize(M, M, cv::Size(width, height));
+
+
+    //cv::Mat cropM(M, cv::Rect(w_off, h_off, crop_width, crop_height));
+    for (int h = 0; h < crop_height; ++h)
+      for (int w = 0; w < crop_width; ++w)
+      {
+
+        if (do_mirror) 
+          top_index = (c * crop_height + h) * crop_width + (crop_width - 1 - w);
+        else 
+          top_index = (c * crop_height + h) * crop_width + w;
+
+        if (has_mean_file) 
+        {
+            NOT_IMPLEMENTED;
+        } 
+        else if (has_mean_values)
+        {
+          ptr[top_index] = ((h+h_off)>=0) && ((h+h_off)<height) && ((w+w_off)>=0) && ((w+w_off)<width) ? (static_cast<Dtype>(M.at<uint8_t>(h+h_off, w+w_off)) - mean_values_[c]) * scale : 0;
+        }
+        else
+        {
+          ptr[top_index] = ((h+h_off)>=0) && ((h+h_off)<height) && ((w+w_off)>=0) && ((w+w_off)<width) ? static_cast<Dtype>(M.at<uint8_t>(h+h_off, w+w_off)) * scale : 0;
+        }
+      }
+    M.release();
+  }
+
+  //for label
+
+  ptr = transformed_label->mutable_cpu_data() + transformed_label->offset(batch_iter);
+  cv::Mat M(datum_height, datum_width, CV_8UC1);
+  for (int h = 0; h < datum_height; ++h)
+    for (int w = 0; w < datum_width; ++w)
+    {
+      int data_index = h * datum_width + w;
+      M.at<uint8_t>(h, w) = static_cast<uint8_t>(label[data_index]);
+    }
+  if (angl != 0)
+   Rotation(M, angl, 1);
+  cv::resize(M, M, cv::Size(width, height), 0, 0, CV_INTER_NN);
+  for (int h = 0; h < crop_height; ++h)
+    for (int w = 0; w < crop_width; ++w) 
+    {
+
+      if (do_mirror) 
+        top_index = h * crop_width + (crop_width - 1 - w);
+      else 
+        top_index = h * crop_width + w;
+
+      ptr[top_index] = ((h+h_off)>=0) && ((h+h_off)<height) && ((w+w_off)>=0) && ((w+w_off)<width) ? static_cast<Dtype>(M.at<uint8_t>(h+h_off, w+w_off)) : param_.ignore_label();
+    }
+  M.release();
+}
+
+template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const Datum& datum,
                                        Blob<Dtype>* transformed_blob) {
   // If datum is encoded, decode and transform the cv::image.
@@ -202,6 +377,20 @@ void DataTransformer<Dtype>::Transform(const vector<Datum> & datum_vector,
 }
 
 #ifdef USE_OPENCV
+template <typename Dtype>
+void DataTransformer<Dtype>::Rotation(cv::Mat& src, int degree, bool islabel){
+  int height = src.size().height;
+  int width = src.size().width;
+
+  cv::Point2f center = cv::Point2f(width / 2, height / 2);
+  cv::Mat map_matrix = cv::getRotationMatrix2D(center, degree, 1.0);
+  if (islabel){
+    cv::warpAffine(src, src, map_matrix, src.size(), cv::INTER_NEAREST);
+  } else{
+    cv::warpAffine(src, src, map_matrix, src.size());
+  }
+}
+
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const vector<cv::Mat> & mat_vector,
                                        Blob<Dtype>* transformed_blob) {

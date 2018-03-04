@@ -425,6 +425,9 @@ message LayerParameter {
   optional SoftmaxKLDLossParameter softmax_kld_loss_param = 305;
   optional SparseHistogramExtractorParameter sparse_histogram_extractor_param = 401;
   optional UniformToHistogramParameter uniform_to_histogram_param = 402;
+  
+  optional BNParameter bn_param = 403;
+  optional SegDataParameter seg_data_param = 404;
 }
 
 // Message that stores parameters used to apply transformation
@@ -448,6 +451,38 @@ message TransformationParameter {
   optional bool force_color = 6 [default = false];
   // Force the decoded image to have 1 color channels.
   optional bool force_gray = 7 [default = false];
+
+  //if set to true,
+  //instead using a fixed position cropping (center, left-up, left-down, right-up, right-down)
+  optional bool fix_crop = 10 [default = false];
+  //turn on to use stronger augmentation
+  optional bool more_fix_crop = 15 [default = false];
+
+  //if set to true, use multi-scale data augmentation
+  optional bool multi_scale = 11 [default = false];
+
+  // a list of float numbers less than 1 for multiple scales
+  repeated float scale_ratios = 12;
+
+  // maximal tolerated aspect ratio mismatch in the ratio list
+  optional int32 max_distort = 13 [default = 1];
+
+  //if set to true, it is optical flow field
+  optional bool is_flow = 14 [default = false];
+
+  //if set to true, will use original image processing mode
+  // i.e. will use Inception style data augmentation
+  optional bool original_image = 20 [ default = false];
+
+  //height and width should be multiples of stride
+  optional int32 stride = 16 [default = 1];
+  optional int32 upper_size = 17;
+  optional int32 upper_height = 18;
+  optional int32 upper_width = 19;
+  optional int32 ignore_label = 21;
+
+  repeated float rand_rotate = 22;
+  optional bool gaussian_blur = 23 [default = false]; 
 }
 
 // Message that stores parameters shared by loss layers
@@ -541,6 +576,23 @@ message BatchNormParameter {
   // Small value to add to the variance estimate so that we don't divide by
   // zero.
   optional float eps = 3 [default = 1e-5];
+}
+
+message BNParameter {
+  optional FillerParameter slope_filler = 1;
+  optional FillerParameter bias_filler = 2;
+  optional float momentum = 3 [default = 0.9];
+  optional float eps = 4 [default = 1e-5];
+  // If true, will use the moving average mean and std for training and test.
+  // Will override the lr_param and freeze all the parameters.
+  // Make sure to initialize the layer properly with pretrained parameters.
+  optional bool frozen = 5 [default = false];
+  enum Engine {
+    DEFAULT = 0;
+    CAFFE = 1;
+    CUDNN = 2;
+  }
+  optional Engine engine = 6 [default = DEFAULT];
 }
 
 message BiasParameter {
@@ -1488,4 +1540,15 @@ message SparseHistogramExtractorParameter {
 
 message UniformToHistogramParameter {
   optional uint32 bins = 1 [default= 32];
+}
+
+message SegDataParameter{
+  // Specify the data source.
+  optional string source = 1;
+  // Specify the data root_dir.
+  optional string root_dir = 2;
+  // Whether or not ImageLayer should shuffle the list of files at every epoch.
+  optional bool shuffle = 3 [default = false];
+  optional bool balance = 4 [default = false];
+  optional uint32 batch_size = 5 [default = 1];
 }
