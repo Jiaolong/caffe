@@ -176,9 +176,10 @@ void ImageLabelDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bott
   label_shape[3] = label_slice.dim(1);
   top[1]->Reshape(label_shape);
 
-  for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
-    this->prefetch_[i].data_.Reshape(data_shape);
-    this->prefetch_[i].label_.Reshape(label_shape);
+  //for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
+  for (int i = 0; i < this->prefetch_.size(); ++i) {
+    this->prefetch_[i]->data_.Reshape(data_shape);
+    this->prefetch_[i]->label_.Reshape(label_shape);
   }
 
   LOG(INFO) << "output data size: " << top[0]->num() << ","

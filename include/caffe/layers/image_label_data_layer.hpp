@@ -39,8 +39,8 @@ class ImageLabelDataLayer : public BasePrefetchingDataLayer<Dtype> {
 
   virtual inline int MinTopBlobs() const { return 2; }
 
-  void GetLabelSlice(const Dtype *labels, int rows, int cols,
-                   const caffe::Slice &label_slice, Dtype *slice_data);
+  //void GetLabelSlice(const Dtype *labels, int rows, int cols,
+  //                 const caffe::Slice &label_slice, Dtype *slice_data);
  protected:
   shared_ptr<Caffe::RNG> prefetch_rng_;
 
